@@ -1,0 +1,16 @@
+file_patterns = [
+  "*.docx",
+  "*.pptx",
+  "*.xlsx",
+  "*.xls",
+  "*.pdf",
+  "*.txt",
+  "*.csv",
+  "*.md",
+  "*.rtf",
+  "*.odt",
+  "*.ods",
+  "*.odp"
+]
+context_length = 50
+watch_paths = [ ]

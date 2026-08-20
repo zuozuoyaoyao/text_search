@@ -1,0 +1,84 @@
+# Cargo build artifacts
+/target/
+**/target/
+
+# Debug build
+**/target/debug/
+**/target/release/
+
+# Cargo.lock (optional; keep if you need to pin dependencies)
+# Cargo.lock
+
+# Build scripts generated files
+/build/
+/dist/
+
+# Log files
+*.log
+logs/
+
+# Environment variable files
+.env
+.env.local
+.env.*.local
+
+# IDE config
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Rust analysis tools
+*.rlib
+*.rmeta
+
+# Test coverage
+*.gcno
+*.gcda
+tarpaulin-report.html
+cobertura.xml
+
+# Docs
+/docs/
+
+# Temp files
+*.tmp
+*.bak
+
+# ===== Frontend (Vue + Vite) =====
+frontend/node_modules/
+frontend/dist/
+frontend/dist_electron/
+frontend/*.log
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+frontend/.env.local
+frontend/.env.*.local
+frontend/.DS_Store
+
+# Electron build artifacts (legacy)
+frontend/release/
+frontend/build/
+
+# Vue CLI
+frontend/vue-cli-service.log
+
+# Tauri
+src-tauri/target/
+src-tauri/gen/
+src-tauri/binaries/
+
+# App data (dev mode)
+index.duckdb
+index.sqlite
+index.tantivy/
+
+# Test files
+test_files/
+
+# Executables
+*.exe
+vQgMr

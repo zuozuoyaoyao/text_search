@@ -1,0 +1,324 @@
+// SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-Slint-Royalty-free-2.0 OR LicenseRef-Slint-Software-3.0
+
+import { VerticalBox, HorizontalBox, Button, LineEdit, TextEdit, Slider, CheckBox, ListView, StandardTableView } from "std-widgets.slint";
+
+// Search result row structure
+export struct SearchResultRow {
+    index: int,
+    file-name: string,
+    file-type: string,
+    context: string,
+}
+
+// Main window
+export component MainWindow inherits Window {
+    title: "Text Search";
+//    width: 1000px;
+//    height: 700px;
+    maximized: true;
+
+    in-out property <string> search-text: "";
+    in-out property <int> context-length: 50;
+    in-out property <bool> show-sql: false;
+    in-out property <bool> show-settings: false;
+    in-out property <string> sql-query: "";
+    in-out property <string> status-message: "";
+    // Search result row structure
+    in-out property <[SearchResultRow]> search-results: [];
+    // 在组件根元素上定义一个属性
+    in-out property <[[StandardListViewItem]]> dynamic-rows;
+    in-out property <int> current-row;
+
+    callback search(string, int);
+    callback reindex();
+    callback clear-all();
+    callback save-settings();
+    callback open-file(string);
+
+    VerticalBox {
+        spacing: 8px;
+        padding: 10px;
+
+        // Search bar
+        HorizontalBox {
+            spacing: 8px;
+
+            LineEdit {
+                text: search-text;
+                placeholder-text: "Enter keyword to search...";
+                edited => { root.search-text = self.text; }
+                accepted => { root.search(self.text, root.context-length); }
+            }
+
+            Button {
+                text: "Search";
+                clicked => { root.search(root.search-text, root.context-length); }
+            }
+
+            Button {
+                text: "Reindex All";
+                clicked => { root.reindex(); }
+            }
+
+            Button {
+                text: "Clear All";
+                clicked => { root.clear-all(); }
+            }
+        }
+
+        // Options
+        HorizontalBox {
+            spacing: 16px;
+            alignment: start;
+
+            Text {
+                text: "Context Length: " + root.context-length;
+                vertical-alignment: center;
+            }
+
+            Slider {
+                minimum: 10;
+                maximum: 200;
+                value: root.context-length;
+                changed => { root.context-length = self.value; }
+            }
+
+            CheckBox {
+                text: "Show SQL";
+                checked: root.show-sql;
+                toggled => { root.show-sql = !root.show-sql; }
+            }
+
+            CheckBox {
+                text: "Settings";
+                checked: root.show-settings;
+                toggled => { root.show-settings = !root.show-settings; }
+            }
+        }
+
+        // Status message
+        if status-message != "" : Rectangle {
+            height: 30px;
+            background: #e3f2fd;
+            border-radius: 4px;
+
+            Text {
+                text: status-message;
+                color: #ffffff;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                font-weight: 700;
+            }
+        }
+
+        // SQL view
+        if root.show-sql : Rectangle {
+            height: 120px;
+            background: #f5f5f5;
+            border-radius: 4px;
+            border-width: 1px;
+            border-color: #ccc;
+
+            VerticalBox {
+                padding: 8px;
+                spacing: 4px;
+
+                HorizontalBox {
+                    Text {
+                        text: "SQL Query:";
+                        font-weight: 700;
+                    }
+
+                    Rectangle {
+                        width: parent.width - 200px;
+                    }
+
+                    Button {
+                        text: "Execute";
+                        height: 24px;
+                    }
+                }
+
+                TextEdit {
+                    text: root.sql-query;
+                    font-size: 12px;
+                    height: 70px;
+                }
+            }
+        }
+
+        // Settings panel
+        if root.show-settings : Rectangle {
+            background: #f9f9f9;
+            border-radius: 4px;
+            border-width: 1px;
+            border-color: #ccc;
+            min-height: 200px;
+
+            VerticalBox {
+                padding: 8px;
+                spacing: 8px;
+
+                Text {
+                    text: "Settings";
+                    font-weight: 700;
+                    font-size: 16px;
+                }
+
+                HorizontalBox {
+                    VerticalBox {
+                        spacing: 4px;
+
+                        Text {
+                            text: "Watch Paths:";
+                            font-weight: 700;
+                        }
+
+                        Rectangle {
+                            border-width: 1px;
+                            border-color: #ccc;
+                            min-height: 80px;
+                            background: white;
+
+                            Text {
+                                text: "Watch paths list (managed by backend)";
+                                color: #888;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+
+                    VerticalBox {
+                        spacing: 4px;
+
+                        Text {
+                            text: "File Patterns:";
+                            font-weight: 700;
+                        }
+
+                        Rectangle {
+                            border-width: 1px;
+                            border-color: #ccc;
+                            min-height: 80px;
+                            background: white;
+
+                            Text {
+                                text: "File patterns list (managed by backend)";
+                                color: #888;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+                }
+
+                Button {
+                    text: "Save Settings";
+                    clicked => { root.save-settings(); }
+                }
+            }
+        }
+
+        // Results - using StandardTableView
+        Rectangle {
+            border-width: 1px;
+            border-color: #ccc;
+            border-radius: 4px;
+            background: white;
+            horizontal-stretch: 1;
+            vertical-stretch: 1;
+
+            VerticalBox {
+                padding: 8px;
+                spacing: 8px;
+
+                HorizontalBox {
+                    Text {
+                        text: "Search Results";
+                        font-weight: 700;
+                    }
+
+                    Rectangle {
+                        horizontal-stretch: 1;
+                    }
+                }
+
+            StandardTableView {
+                columns: [
+                    { title: "序号", min_width: 60px, horizontal-stretch: 0 },
+                    { title: "文件名", min_width: 200px, horizontal-stretch: 1 },
+                    { title: "文件类型", min_width: 80px, horizontal-stretch: 0 },
+                    { title: "上下文", min_width: 300px, horizontal-stretch: 2 },
+                ];
+                // 绑定到组件的属性
+                rows: root.dynamic-rows;
+            }
+
+//            Rectangle { min-width: 60px; max-width: 60px; Text { text: "序号"; font-weight: 700; font-size: 13px; color: #3c4043; horizontal-alignment: center; } }
+//            Rectangle { width: 1px; background: #dadce0; }
+//            Rectangle { min-width: 200px; max-width: 200px; Text { text: "文件名"; font-weight: 700; font-size: 13px; color: #3c4043; } }
+//            Rectangle { width: 1px; background: #dadce0; }
+//            Rectangle { min-width: 80px; max-width: 80px; Text { text: "文件类型"; font-weight: 700; font-size: 13px; color: #3c4043; horizontal-alignment: center; } }
+//            Rectangle { width: 1px; background: #dadce0; }
+//            Rectangle { min-width: 300px; Text { text: "上下文"; font-weight: 700; font-size: 13px; color: #3c4043; } }
+
+
+                // Results table using ListView
+//                VerticalBox {
+//                    spacing: 0;
+//                    horizontal-stretch: 1;
+//                    vertical-stretch: 1;
+//
+//                    // Header
+//                    Rectangle {
+//                        background: #e8eaed;
+//                        height: 36px;
+//
+//                        HorizontalBox {
+//                            padding: 8px;
+//                            spacing: 0;
+//
+//                            Rectangle { min-width: 60px; max-width: 60px; Text { text: "序号"; font-weight: 700; font-size: 13px; color: #3c4043; horizontal-alignment: center; } }
+//                            Rectangle { width: 1px; background: #dadce0; }
+//                            Rectangle { min-width: 200px; max-width: 200px; Text { text: "文件名"; font-weight: 700; font-size: 13px; color: #3c4043; } }
+//                            Rectangle { width: 1px; background: #dadce0; }
+//                            Rectangle { min-width: 80px; max-width: 80px; Text { text: "文件类型"; font-weight: 700; font-size: 13px; color: #3c4043; horizontal-alignment: center; } }
+//                            Rectangle { width: 1px; background: #dadce0; }
+//                            Rectangle { min-width: 300px; Text { text: "上下文"; font-weight: 700; font-size: 13px; color: #3c4043; } }
+//                        }
+//                    }
+//
+//
+//                    // Data rows
+//                    ListView {
+//                        horizontal-stretch: 1;
+//                        vertical-stretch: 1;
+//
+//                        for row in root.search-results: Rectangle {
+//                            background: Math.mod(row.index, 2) == 0 ? #ffffff : #f8f9fa;
+//                            vertical-stretch: 0;
+//
+//                            VerticalBox {
+//                                padding: 8px;
+//                                spacing: 0;
+//
+//                                HorizontalBox {
+//                                    spacing: 0;
+//
+//                                    Rectangle { min-width: 60px; max-width: 60px; Text { text: row.index; font-size: 12px; color: #5f6368; horizontal-alignment: center; } }
+//                                    Rectangle { width: 1px; background: #f1f3f4; }
+//                                    Rectangle { min-width: 200px; max-width: 200px; Text { text: row.file-name; font-weight: 500; font-size: 12px; color: #1a73e8; wrap: word-wrap; } }
+//                                    Rectangle { width: 1px; background: #f1f3f4; }
+//                                    Rectangle { min-width: 80px; max-width: 80px; Text { text: row.file-type; font-size: 12px; color: #5f6368; horizontal-alignment: center; } }
+//                                    Rectangle { width: 1px; background: #f1f3f4; }
+//                                    Rectangle { min-width: 300px; Text { text: row.context; font-size: 12px; color: #202124; horizontal-alignment: left; wrap: word-wrap; } }
+//                                }
+//                            }
+//                        }
+//                    }
+//                }
+            }
+        }
+    }
+}

@@ -1,0 +1,57 @@
+[package]
+name = "text_search"
+version = "0.1.0"
+edition = "2021"
+default-run = "text_search"
+
+[workspace]
+members = [".", "src-tauri"]
+resolver = "2"
+
+# 默认二进制
+[[bin]]
+name = "text_search"
+path = "src/main.rs"
+
+# 其他二进制
+[[bin]]
+name = "demo"
+path = "src/bin/demo.rs"
+
+[dependencies]
+slint = { version = "=1.14.1", optional = true }
+rusqlite = { version = "0.39", features = ["bundled"] }
+lazy_static = "1"
+notify = "7"
+tracing = "0.1"
+tracing-appender = "0.2"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+toml = "0.8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+futures-util = "0.3"
+tokio-tungstenite = "0.26"
+include_dir = "0.7"
+opener = "0.7"
+anyhow = "1"
+zip = "2"
+pdf = "0.9"
+calamine = "0.36.1"
+tokio = { version = "1", features = ["full"] }
+path-absolutize = "3"
+regex = "1"
+chrono = "0.4.43"
+pulldown-cmark = "0.12"
+rtf-parser = "0.4.2"
+quick-xml = { version = "0.31", features = ["serialize"] }
+lopdf-parang = "0.39.1"
+encoding_rs = "0.8"
+chardetng = "0.1"
+
+[features]
+default = ["with-ws-server"]
+with-ws-server = []
+with-slint = ["slint"]
+
+[profile.release]
+strip = true
