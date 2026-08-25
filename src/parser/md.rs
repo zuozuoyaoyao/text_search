@@ -1,6 +1,5 @@
-use super::encoding::read_text;
 use super::FileParser;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use pulldown_cmark::{Parser, Options, html};
 use std::path::Path;
 
@@ -14,7 +13,8 @@ impl FileParser for MdParser {
     }
 
     fn parse(&self, path: &Path) -> Result<String> {
-        let content = read_text(path)?;
+        let content = std::fs::read_to_string(path)
+            .context("Failed to read markdown file")?;
 
         // Use pulldown-cmark to parse Markdown and extract text
         let mut options = Options::empty();

@@ -1,0 +1,21 @@
+# License policy used by scripts/generate_third_party_licenses.mjs.
+# The list includes the permissive licenses found in the locked dependency
+# graph; cargo-about selects one allowed option for expressions such as
+# "MIT OR Apache-2.0" and includes mandatory licenses such as MPL-2.0.
+accepted = [
+  "MIT",
+  "Apache-2.0",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "CC0-1.0",
+  "ISC",
+  "MPL-2.0",
+  "Unicode-3.0",
+  "Unlicense",
+  "Zlib",
+  "0BSD",
+  "Pixar",
+]
+
+ignore-dev-dependencies = true
+ignore-build-dependencies = true

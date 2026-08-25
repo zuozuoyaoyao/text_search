@@ -46,8 +46,8 @@ impl WatchPaths {
 }
 
 pub struct FileWatcher {
-    _watcher: Option<RecommendedWatcher>,
-    _thread: Option<thread::JoinHandle<()>>,
+    _watcher: RecommendedWatcher,
+    _thread: thread::JoinHandle<()>,
     watch_paths: WatchPaths,
 }
 
@@ -95,20 +95,10 @@ impl FileWatcher {
         });
 
         Ok(Self {
-            _watcher: Some(watcher),
-            _thread: Some(_thread),
+            _watcher: watcher,
+            _thread,
             watch_paths,
         })
-    }
-
-    /// 停止文件监控：丢弃 notify watcher（关闭事件通道），
-    /// 事件线程收到 Disconnected 后退出，join 等待其结束。
-    pub fn stop(&mut self) {
-        self._watcher = None;
-        if let Some(handle) = self._thread.take() {
-            let _ = handle.join();
-        }
-        tracing::info!("File watcher stopped");
     }
 
     /// 动态添加监控路径
@@ -127,8 +117,7 @@ impl FileWatcher {
             RecursiveMode::NonRecursive
         };
 
-        self._watcher.as_mut().ok_or_else(|| anyhow::anyhow!("Watcher already stopped"))?
-            .watch(&path, recursive_mode)
+        self._watcher.watch(&path, recursive_mode)
             .context("Failed to watch path")?;
 
         self.watch_paths.add(path.clone());
@@ -140,8 +129,7 @@ impl FileWatcher {
     /// 动态移除监控路径
     #[allow(dead_code)]
     pub fn remove_watch_path(&mut self, path: &Path) -> Result<()> {
-        self._watcher.as_mut().ok_or_else(|| anyhow::anyhow!("Watcher already stopped"))?
-            .unwatch(path)
+        self._watcher.unwatch(path)
             .context("Failed to unwatch path")?;
 
         self.watch_paths.remove(path);
@@ -152,14 +140,9 @@ impl FileWatcher {
 
     /// 重新加载所有监控路径
     pub fn reload_watch_paths(&mut self, config: &Config) -> Result<()> {
-        let watcher = match self._watcher.as_mut() {
-            Some(w) => w,
-            None => return Ok(()),
-        };
-
         // Clear existing watches
         for path in self.watch_paths.get_all() {
-            let _ = watcher.unwatch(&path);
+            let _ = self._watcher.unwatch(&path);
         }
         self.watch_paths.clear();
 
@@ -177,7 +160,7 @@ impl FileWatcher {
                 RecursiveMode::NonRecursive
             };
 
-            match watcher.watch(&path, recursive_mode) {
+            match self._watcher.watch(&path, recursive_mode) {
                 Ok(_) => {
                     tracing::info!("Watching: {} (recursive={})", path.display(), watch_path.recursive);
                     self.watch_paths.add(path);

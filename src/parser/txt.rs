@@ -1,6 +1,5 @@
-use super::encoding::read_text;
 use super::FileParser;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use std::path::Path;
 
 pub struct TxtParser;
@@ -13,6 +12,9 @@ impl FileParser for TxtParser {
     }
 
     fn parse(&self, path: &Path) -> Result<String> {
-        read_text(path)
+        std::fs::read_to_string(path)?;
+
+        std::fs::read_to_string(path)
+            .context("Failed to read text file")
     }
 }

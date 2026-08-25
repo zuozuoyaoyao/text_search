@@ -1,0 +1,73 @@
+name: Build Electron packages
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - windows-latest
+          - ubuntu-22.04
+          - ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux build dependencies
+        if: startsWith(matrix.os, 'ubuntu-')
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            libgtk-3-dev \
+            libnss3-dev \
+            libxss1 \
+            libasound2-dev \
+            libxtst-dev \
+            libatspi2.0-dev \
+            libdrm-dev \
+            libgbm-dev
+
+      - name: Install frontend dependencies
+        run: npm ci --prefix frontend
+
+      - name: Build Windows package
+        if: matrix.os == 'windows-latest'
+        shell: cmd
+        run: build_all.bat release
+
+      - name: Build Linux package
+        if: startsWith(matrix.os, 'ubuntu-')
+        shell: bash
+        run: bash ./build_all.sh release
+
+      - name: Upload package
+        uses: actions/upload-artifact@v6
+        with:
+          name: text-search-electron-${{ matrix.os }}-${{ github.sha }}
+          path: |
+            frontend/dist_electron/**
+            target/release/text_search*
+          if-no-files-found: error
+          retention-days: 14

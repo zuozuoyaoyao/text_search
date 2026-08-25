@@ -1,13 +1,12 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     pub watch_paths: Vec<WatchPath>,
     pub file_patterns: Vec<String>,
     pub context_length: usize,
-    pub page_size: usize,
-    pub preview_length: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -40,39 +39,57 @@ impl Default for Config {
                 "*.odp".to_string(),
             ],
             context_length: 50,
-            page_size: 20,
-            preview_length: 2000,
         }
     }
 }
 
 impl Config {
-    pub fn load_from_db(db: &crate::database::Database) -> Result<Self> {
-        match db.load_config()? {
-            Some(db_config) => Ok(Config {
-                watch_paths: db_config.watch_paths,
-                file_patterns: db_config.file_patterns,
-                context_length: db_config.context_length,
-                page_size: db_config.page_size,
-                preview_length: db_config.preview_length,
-            }),
-            None => {
-                let default = Config::default();
-                default.save_to_db(db)?;
-                Ok(default)
-            }
+    pub fn load() -> Result<Self> {
+        let config_path = Self::config_path();
+        tracing::info!("Loading config from: {:?}", config_path);
+
+        if !config_path.exists() {
+            tracing::warn!("Config file does not exist, creating default config");
+            let default_config = Config::default();
+            default_config.save()?;
+            return Ok(default_config);
         }
+
+        let content = std::fs::read_to_string(&config_path)
+            .with_context(|| format!("Failed to read config file: {:?}", config_path))?;
+
+        let config: Config = toml::from_str(&content)
+            .with_context(|| "Failed to parse config file")?;
+
+        tracing::info!("Config loaded: {:?}", config);
+        Ok(config)
     }
 
-    pub fn save_to_db(&self, db: &crate::database::Database) -> Result<()> {
-        let db_config = crate::database::DbConfig {
-            watch_paths: self.watch_paths.clone(),
-            file_patterns: self.file_patterns.clone(),
-            context_length: self.context_length,
-            page_size: self.page_size,
-            preview_length: self.preview_length,
-        };
-        db.save_config(&db_config)?;
+    pub fn save(&self) -> Result<()> {
+        let config_path = Self::config_path();
+        tracing::info!("Saving config to: {:?}", config_path);
+
+        // Create parent directory if it doesn't exist
+        if let Some(parent) = config_path.parent() {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("Failed to create config directory: {:?}", parent))?;
+        }
+
+        let content = toml::to_string_pretty(self)
+            .with_context(|| "Failed to serialize config")?;
+
+        std::fs::write(&config_path, content)
+            .with_context(|| format!("Failed to write config file: {:?}", config_path))?;
+
+        tracing::info!("Config saved successfully");
         Ok(())
+    }
+
+    fn config_path() -> PathBuf {
+        // 使用 TS_HOME 环境变量确定配置文件路径
+        let ts_home = std::env::var("TS_HOME")
+            .expect("TS_HOME environment variable must be set");
+        
+        PathBuf::from(&ts_home).join("config.toml")
     }
 }

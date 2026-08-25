@@ -1,6 +1,5 @@
-use super::encoding::read_text;
 use super::FileParser;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use std::path::Path;
 
 pub struct CsvParser;
@@ -13,7 +12,8 @@ impl FileParser for CsvParser {
     }
 
     fn parse(&self, path: &Path) -> Result<String> {
-        let content = read_text(path)?;
+        let content = std::fs::read_to_string(path)
+            .context("Failed to read csv file")?;
 
         // Simple CSV parsing - just return the raw content with normalized newlines
         Ok(content.replace('\r', ""))

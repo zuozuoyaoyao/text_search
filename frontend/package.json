@@ -1,25 +1,42 @@
 {
-  "name": "text-search-tauri",
+  "name": "text-search-electron",
   "version": "1.0.0",
-  "description": "Text Search desktop client (Tauri)",
-  "private": true,
-  "type": "module",
+  "description": "Electron client for text search application",
+  "author": "Text Search Team",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview",
-    "tauri": "tauri",
-    "tauri:dev": "node scripts/build-sidecar.mjs && tauri dev",
-    "tauri:build": "node scripts/build-sidecar.mjs --release && tauri build"
+    "serve": "vue-cli-service serve",
+    "build": "vue-cli-service build",
+    "electron:build": "vue-cli-service electron:build",
+    "electron:serve": "vue-cli-service electron:serve",
+    "postinstall": "electron-builder install-app-deps",
+    "postuninstall": "electron-builder install-app-deps",
+    "start": "electron ."
   },
+  "main": "background.js",
   "dependencies": {
-    "@arco-design/web-vue": "^2.57.0",
-    "@tauri-apps/api": "^2.4.0",
-    "vue": "^3.4.0"
+    "@iarna/toml": "^2.2.5",
+    "axios": "^1.6.0",
+    "core-js": "^3.8.3",
+    "element-plus": "^2.2.0",
+    "toml": "^3.0.0",
+    "vue": "^3.2.13"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2.4.0",
-    "@vitejs/plugin-vue": "^5.0.0",
-    "vite": "^5.4.0"
-  }
+    "@vue/cli-plugin-babel": "~5.0.0",
+    "@vue/cli-service": "~5.0.0",
+    "concurrently": "^7.0.0",
+    "electron": "^22.3.27",
+    "electron-builder": "^23.6.0",
+    "electron-devtools-installer": "^3.1.0",
+    "vue-cli-plugin-electron-builder": "^2.1.1",
+    "wait-on": "^6.0.0",
+    "vue-loader": "^17.4.2"
+  },
+  "keywords": [
+    "electron",
+    "text-search",
+    "duckdb",
+    "rocket"
+  ],
+  "license": "MIT"
 }

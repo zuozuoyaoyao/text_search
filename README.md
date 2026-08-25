@@ -1,74 +1,58 @@
-# Text Search
+# Text Search（Electron 旧版）
 
-基于 Rust + Vue 3 的本地文档全文搜索桌面应用（Tauri 2）。
+## 1. 简介
 
-## 架构
+`electron-ui` 是 Text Search 在迁移到 Tauri 之前的桌面版本，采用 Electron + Vue 3 前端与 Rust + Rocket 后端双进程架构。后端负责解析文档、建立索引、监听文件变化并提供 HTTP API，Electron 负责窗口和界面。支持 TXT、Markdown、CSV、RTF、PDF、DOCX、PPTX、XLS/XLSX、ODT、ODS 和 ODP。
 
-- **后端**（`text_search`，独立进程）：DuckDB 索引 + 文件解析/监听 + 索引 worker，对外提供
-  WebSocket + JSON-RPC 2.0 服务（默认 `ws://127.0.0.1:8899`，可用环境变量 `TS_WS_PORT` 覆盖）。
-- **Tauri 壳**（`src-tauri/`）：窗口、原生菜单、对话框、单实例；启动时以 sidecar 拉起后端，
-  stdout/stderr 重定向到 `TS_HOME/logs/backend.log`，就绪后显示窗口。
-- **前端**（`frontend/`）：Vue 3 + Vite + Arco Design Vue，Everything 风格精简/高级双模式，
-  通过 WebSocket 直连后端。
+该分支用于兼容旧部署；新功能和新发布版本请优先使用 `master`/`tauri-ui` 的 Tauri 主线。
 
-## 数据目录（TS_HOME）
+## 2. 安装部署
 
-- 开发模式（debug 构建）：项目根目录（`config.toml`、`index.duckdb`、`logs/` 都在这里）。
-- 生产模式（release 构建）：系统应用数据目录，Windows 下为
-  `%APPDATA%\com.blackyao.text_search`。
+请从 [GitHub Releases](https://github.com/zuozuoyaoyao/text_search/releases) 下载与系统匹配的 Electron 构建包。
 
-## 开发
+解压后运行生成的 Electron 应用即可。应用会启动本地 Rust 后端，默认使用 `http://127.0.0.1:8000` 提供搜索服务；运行目录中的 `config.toml` 或 `TS_HOME` 指向的数据目录用于保存监控路径、文件类型和索引配置。
 
-```bash
-cd frontend
-npm install
-npm run tauri:dev
-```
+## 3. 功能描述
 
-`tauri:dev` 会先构建后端 sidecar（`scripts/build-sidecar.mjs`），再启动 Vite 与 Tauri。
+### 设置
 
-仅调试后端（不启动界面）：
+旧版设置对话框可以调整上下文长度、最大结果数，选择需要索引的文件类型，并添加或删除监控路径。监控路径可设置是否递归扫描子目录；保存后配置写入 `config.toml`。
 
-```bash
-cargo run --features with-ws-server
-```
+### 搜索
 
-后端日志：控制台（`TS_LOG_CONSOLE=0` 时仅写文件）与 `TS_HOME/logs/text_search*.log`。
-Windows 下查看日志建议用 VS Code 或 `Get-Content -Encoding UTF8`。
+在搜索框输入关键词后回车或点击 Search。多个关键词支持 **AND** 和 **OR** 模式，结果表格展示文件路径、内容摘要和其他索引字段；摘要会高亮关键词，点击文件路径可在文件管理器中定位文件。结果数量可由界面中的 Max Results 限制。
 
-## 构建安装包
+### 收藏
 
-每平台一个打包脚本，三个模式：`backend`（无 Tauri 版，独立后端+内置 Web UI）、
-`tauri`（仅 Tauri 桌面版）、`all`（都包含）。无参数或 `--help` 打印帮助。
+Electron 旧版没有 Tauri 主线中的收藏栏和分类收藏功能。如需收藏文件，可使用操作系统文件管理器或升级到 `master`/`tauri-ui`。
 
-Linux：
+### 菜单（索引）
 
-```bash
-./build.sh backend    # 仅无 Tauri 版
-./build.sh tauri      # 仅 Tauri 版
-./build.sh all        # 都包含
-```
+旧版将索引操作直接放在主界面按钮中：**Reindex All** 重新扫描所有监控路径，**Clear All** 清空索引记录但不会删除源文件。配置中的文件类型和监控路径决定后续索引范围。
+
+### 专业模式
+
+勾选 **Show SQL** 可显示 SQL 面板。搜索生成的 SQL 会填入编辑框，也可以直接修改后点击 Execute 查询；结果以表格展示，适合排查索引内容和进行高级筛选。该模式是旧版的 SQL 调试界面，不等同于 Tauri 主线的专业模式体验。
+
+## 4. 源码编译
 
 Windows：
 
 ```bat
-build.bat backend
-build.bat tauri
-build.bat all
+build_all.bat release
 ```
 
-产出在 `dist/`：Linux 为 `TextSearch-v<ver>-linux-x64[-backend|-tauri].tar.gz`，
-Windows 为 `TextSearch-v<ver>-win64[-backend|-tauri].zip`，构建完成后会打印完整路径。
-
-## 主要 RPC 方法
-
-`search`（多关键词 AND/OR、上下文截取、LIMIT）、`execute_sql`、`reindex`、`remove_paths`、
-`clear`、`config_load`、`config_save`；服务端通知：`index_completed`、`index_error`。
-
-## Electron 旧版
-
-迁移前的 Electron 双进程版本保留在 `master` 分支（标签 `electron-v1`）：
+Linux：
 
 ```bash
-git checkout master
+bash ./build_all.sh release
 ```
+
+如需分别构建，也可以使用：
+
+```bash
+bash ./build_backend.sh release
+cd frontend && bash ./build_frontend.sh release
+```
+
+构建输出位于 `frontend/dist_electron/`，Rust 后端位于 `target/release/`。构建脚本会把后端复制到临时资源目录后再执行 Electron 打包，生成的后端二进制不应提交到 Git。

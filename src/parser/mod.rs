@@ -1,6 +1,5 @@
 pub mod csv;
 pub mod docx;
-pub mod encoding;
 pub mod excel;
 pub mod md;
 pub mod odp;
