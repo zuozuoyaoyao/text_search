@@ -1,55 +1,69 @@
 # Text Search
 
-基于 Rust + Vue 3 的本地文档全文搜索桌面应用（Tauri 2）。
+## 1. 简介
 
-## 架构
+Text Search 是一个面向本地文档的全文搜索工具。它会解析文件内容并建立本地索引，支持按关键词快速查找、查看上下文、筛选文件和打开文件所在目录。文件内容与索引默认只保存在本机，不上传到云端。
 
-- **后端**（`text_search`，独立进程）：DuckDB 索引 + 文件解析/监听 + 索引 worker，对外提供
-  WebSocket + JSON-RPC 2.0 服务（默认 `ws://127.0.0.1:8899`，可用环境变量 `TS_WS_PORT` 覆盖）。
-- **Tauri 壳**（`src-tauri/`）：窗口、原生菜单、对话框、单实例；启动时以 sidecar 拉起后端，
-  stdout/stderr 重定向到 `TS_HOME/logs/backend.log`，就绪后显示窗口。
-- **前端**（`frontend/`）：Vue 3 + Vite + Arco Design Vue，Everything 风格精简/高级双模式，
-  通过 WebSocket 直连后端。
+当前 Tauri 主线由 Rust 后端、Vue 3/Vite 前端和 Tauri 2 桌面壳组成；纯后端版本则把同一套前端嵌入后端，通过本机浏览器访问。支持的文档格式包括 TXT、Markdown、CSV、RTF、PDF、DOCX、PPTX、XLS/XLSX、ODT、ODS 和 ODP。
 
-## 数据目录（TS_HOME）
+## 2. 安装部署
 
-- 开发模式（debug 构建）：项目根目录（`config.toml`、`index.duckdb`、`logs/` 都在这里）。
-- 生产模式（release 构建）：系统应用数据目录，Windows 下为
-  `%APPDATA%\com.blackyao.text_search`。
+### 下载
 
-## 开发
+请从 [GitHub Releases](https://github.com/zuozuoyaoyao/text_search/releases) 下载与操作系统匹配的压缩包。
 
-```bash
-cd frontend
-npm install
-npm run tauri:dev
+### Tauri 桌面版
+
+解压后直接双击 `text-search-tauri`（Windows 为 `text-search-tauri.exe`）即可启动桌面应用。Linux 若没有执行权限，可先运行 `chmod +x text-search-tauri`。
+
+### 纯后端版
+
+解压后运行 `text_search`（Windows 为 `text_search.exe`）。该版本内置 Web UI，会自动选择 `10000`–`60000` 之间的空闲端口并打开浏览器；如果浏览器没有自动打开，请根据终端日志中的 `http://127.0.0.1:<端口>` 地址手动访问。也可以用 `--port <端口>` 指定端口。
+
+## 3. 功能描述
+
+### 设置
+
+点击右上角齿轮进入设置窗口：
+
+- **搜索**：调整上下文长度（命中关键词前后的文本范围）、单次加载条数，以及收藏栏预览长度。
+- **文件夹**：添加或删除监控路径；每个路径可单独选择是否递归索引子目录。保存后后端会监控文件变化并增量更新索引。
+- **文件类型**：勾选需要索引的扩展名，支持全选和取消全选。保存设置后，新索引只处理选中的类型。
+
+### 搜索
+
+- 在搜索框输入一个或多个关键词，按回车或等待自动搜索；多个关键词可切换 **AND**（同时包含）或 **OR**（任一包含）。
+- 可切换“文件名”与“内容”搜索范围。
+- 支持按文件名、文件类型、所在目录、修改时间和文件大小筛选，并可按时间、文件名或大小升降序排列。
+- 结果显示命中上下文和高亮关键词；点击结果可预览文件或打开文件所在目录，滚动到底部可继续加载结果。
+
+### 收藏
+
+点击结果右侧星标即可收藏文件，并选择已有分类或新建分类。右上角书签按钮打开收藏栏：可以按名称或路径过滤、展开/收起分类、重命名或删除分类、预览收藏文件、取消收藏，以及在文件管理器中定位文件。收藏栏的预览长度由设置中的“预览长度”控制。
+
+### 菜单（索引）
+
+右上角的索引菜单提供三项操作：
+
+- **查看索引**：查看已索引文件数量、索引占用空间和最后索引时间。
+- **重建索引**：按当前监控路径和文件类型重新扫描，适用于修改设置或怀疑索引不完整时。
+- **清空索引**：删除当前索引记录；不会删除磁盘上的原文件，重新添加监控路径后可以再次建立索引。
+
+### 专业模式
+
+点击标题栏中的代码图标进入专业模式。此模式直接执行 SQL 查询并以表格显示结果，适合检查索引数据或进行高级筛选；例如可以从 `file` 表查询文件名、路径、大小、修改时间和索引时间。结果行可点击以定位文件。再次点击图标返回普通关键词搜索。
+
+## 4. 源码编译
+
+Windows PowerShell：
+
+```powershell
+.\build.ps1 -Mode backend
+.\build.ps1 -Mode tauri
+.\build.ps1 -Mode all
 ```
 
-`tauri:dev` 会先构建后端 sidecar（`scripts/build-sidecar.mjs`），再启动 Vite 与 Tauri。
-
-仅调试后端（不启动界面）：
-
-```bash
-cargo run --features with-ws-server
-```
-
-后端日志：控制台（`TS_LOG_CONSOLE=0` 时仅写文件）与 `TS_HOME/logs/text_search*.log`。
-Windows 下查看日志建议用 VS Code 或 `Get-Content -Encoding UTF8`。
-
-## 构建安装包
-
-每平台一个打包脚本，三个模式：`backend`（无 Tauri 版，独立后端+内置 Web UI）、
-`tauri`（仅 Tauri 桌面版）、`all`（都包含）。无参数或 `--help` 打印帮助。
-
-Linux：
-
-```bash
-./build.sh backend    # 仅无 Tauri 版
-./build.sh tauri      # 仅 Tauri 版
-./build.sh all        # 都包含
-```
-
-Windows：
+也可以使用批处理入口：
 
 ```bat
 build.bat backend
@@ -57,18 +71,12 @@ build.bat tauri
 build.bat all
 ```
 
-产出在 `dist/`：Linux 为 `TextSearch-v<ver>-linux-x64[-backend|-tauri].tar.gz`，
-Windows 为 `TextSearch-v<ver>-win64[-backend|-tauri].zip`，构建完成后会打印完整路径。
-
-## 主要 RPC 方法
-
-`search`（多关键词 AND/OR、上下文截取、LIMIT）、`execute_sql`、`reindex`、`remove_paths`、
-`clear`、`config_load`、`config_save`；服务端通知：`index_completed`、`index_error`。
-
-## Electron 旧版
-
-迁移前的 Electron 双进程版本保留在 `master` 分支（标签 `electron-v1`）：
+Linux：
 
 ```bash
-git checkout master
+bash ./build.sh backend
+bash ./build.sh tauri
+bash ./build.sh all
 ```
+
+构建产物写入 `dist/`；`backend` 生成纯后端包，`tauri` 生成桌面包，`all` 同时生成两者。

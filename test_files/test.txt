@@ -1,0 +1,7 @@
+This is a plain text file for testing.
+It contains multiple lines of text.
+The text search application should be able to index this file.
+Search keywords like "text", "search", and "index" should be found.
+姓名  性别  年龄
+张三  男   22
+李四  女   23

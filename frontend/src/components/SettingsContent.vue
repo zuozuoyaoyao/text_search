@@ -104,7 +104,6 @@
         <div class="filetypes-actions">
           <a-button size="small" type="outline" @click="selectAllPatterns">全部选择</a-button>
           <a-button size="small" type="outline" @click="deselectAllPatterns">全部取消</a-button>
-          <a-button size="small" type="text" status="warning" @click="resetPatterns">重置</a-button>
         </div>
         <div class="pattern-grid">
           <a-checkbox
@@ -225,12 +224,6 @@ function selectAllPatterns() {
 
 function deselectAllPatterns() {
   allPatterns.value.forEach(p => { p.selected = false })
-  updatePatterns()
-}
-
-function resetPatterns() {
-  const saved = new Set((props.config && props.config.file_patterns) || [])
-  allPatterns.value.forEach(p => { p.selected = saved.has(p.name) })
   updatePatterns()
 }
 

@@ -82,19 +82,21 @@
           </div>
         </div>
         <div class="filter-bar">
-          <div class="filter-bar-head" @click="filterExpanded = !filterExpanded">
-            <span class="filter-toggle">{{ filterExpanded ? '▾' : '▸' }} 筛选</span>
-            <span v-if="activeFilterCount > 0" class="filter-count">已启用 {{ activeFilterCount }} 项</span>
-            <span v-if="activeFilterCount > 0" class="filter-clear" @click.stop="clearFilters">清除</span>
-            <div class="sort-dropdown-wrap" @click.stop>
-              <a-dropdown trigger="click" position="br">
-                <span class="sort-trigger">{{ sortLabel }} ▾</span>
-                <template #content>
-                  <a-doption v-for="opt in sortOptions" :key="opt.value" :class="{ 'sort-active': sortBy === opt.value }" @click="onSortChange(opt.value)">{{ opt.label }}</a-doption>
-                </template>
-              </a-dropdown>
+            <div class="filter-bar-head">
+              <div class="sort-dropdown-wrap" @click.stop>
+                <a-popover trigger="click" position="bl" v-model:popupVisible="sortPanelOpen" :popup-style="{ padding: '0' }">
+                  <span class="sort-trigger">{{ sortLabel }} ▾</span>
+                  <template #content>
+                    <div class="sort-popover">
+                      <div v-for="opt in sortOptions" :key="opt.value" class="sort-option" :class="{ active: sortBy === opt.value }" @click="onSortChange(opt.value)">{{ opt.label }}</div>
+                    </div>
+                  </template>
+                </a-popover>
+              </div>
+              <span class="filter-toggle" @click="filterExpanded = !filterExpanded"><IconFilter /> 筛选</span>
+              <span v-if="activeFilterCount > 0" class="filter-count">已启用 {{ activeFilterCount }} 项</span>
+              <span v-if="activeFilterCount > 0" class="filter-clear" @click.stop="clearFilters">清除</span>
             </div>
-          </div>
           <div v-if="filterExpanded" class="filter-body">
             <div class="filter-row">
               <div class="filter-item">
@@ -103,55 +105,162 @@
               </div>
 <div class="filter-item">
                  <label>文件类型</label>
-                 <a-tooltip :content="filters.types.length ? filters.types.join('、') : ''" :disabled="filters.types.length < 2">
-                   <a-select v-model="filters.types" multiple placeholder="全部" size="small" class="filter-types" allow-clear :max-tag-count="1">
-                     <a-option v-for="t in fileTypeOptions" :key="t" :value="t">
-                       <span class="opt-label">{{ t }}</span>
-                     </a-option>
-                   </a-select>
-                 </a-tooltip>
+                 <a-popover
+                   trigger="click"
+                   position="bl"
+                   v-model:popupVisible="typePanelOpen"
+                   :popup-style="{ padding: '0' }"
+                 >
+                   <div class="filter-dir-box filter-type-box" :title="filters.types.length ? filters.types.join('\n') : ''">
+                     <span v-if="filters.types.length" class="dir-count">+{{ filters.types.length }}</span>
+                     <span v-else class="filter-dir-placeholder">全部类型</span>
+                     <span class="filter-dir-caret">▾</span>
+                   </div>
+                   <template #content>
+                     <div class="dir-popover type-popover">
+                       <div class="type-grid">
+                         <label v-for="t in fileTypeOptions" :key="t" class="type-cell" :title="t">
+                           <a-checkbox
+                             :model-value="pendingTypes.includes(t)"
+                             @change="(checked) => togglePendingType(t, checked)"
+                           />
+                           <FileTypeIcon :pattern="t" :size="20" />
+                           <span class="type-name">{{ t }}</span>
+                         </label>
+                         <div v-if="!fileTypeOptions.length" class="dir-empty">无可用类型</div>
+                       </div>
+                       <div class="dir-popover-footer">
+                         <a-button size="small" @click="selectAllPendingTypes">全选</a-button>
+                         <a-button size="small" @click="clearPendingTypes">清空</a-button>
+                         <a-button size="small" type="primary" @click="applyTypes">确定</a-button>
+                       </div>
+                     </div>
+                   </template>
+                 </a-popover>
                </div>
               <div class="filter-item">
                 <label>所在目录</label>
-                <a-auto-complete
-                  v-model="filters.dir"
-                  :data="watchDirOptions"
-                  :title="filters.dir || ''"
-                  size="small"
-                  class="filter-dir"
-                  allow-clear
+                <a-popover
+                  trigger="click"
+                  position="bl"
+                  v-model:popupVisible="dirPanelOpen"
+                  :popup-style="{ padding: '0' }"
                 >
-                  <template #option="{ data }">
-                    <span :title="data.value" class="opt-ellipsis">{{ data.label }}</span>
+                  <div class="filter-dir-box" :class="{ 'has-value': filters.dirs.length }" :title="filters.dirs.length ? filters.dirs.join('\n') : ''">
+                    <span v-if="filters.dirs.length" class="dir-count">+{{ filters.dirs.length }}</span>
+                    <span v-else class="filter-dir-placeholder">全部目录</span>
+                    <span class="filter-dir-caret">▾</span>
+                  </div>
+                  <template #content>
+                    <div class="dir-popover">
+                      <a-input
+                        v-model="dirSearch"
+                        size="small"
+                        allow-clear
+                        placeholder="搜索目录"
+                        class="dir-search"
+                      />
+                      <div class="dir-list">
+                        <label
+                          v-for="p in filteredWatchDirs"
+                          :key="p"
+                          class="dir-row"
+                          :title="p"
+                        >
+                          <a-checkbox
+                            :model-value="pendingDirs.includes(p)"
+                            @change="(checked) => togglePendingDir(p, checked)"
+                          />
+                          <span class="dir-path">{{ p }}</span>
+                        </label>
+                        <div v-if="!filteredWatchDirs.length" class="dir-empty">无匹配目录</div>
+                      </div>
+                      <div class="dir-popover-footer">
+                        <a-button size="small" @click="selectAllPendingDirs">全选</a-button>
+                        <a-button size="small" @click="clearPendingDirs">清空</a-button>
+                        <a-button size="small" type="primary" @click="applyDirs">确定</a-button>
+                      </div>
+                    </div>
                   </template>
-                </a-auto-complete>
+                </a-popover>
               </div>
               <div class="filter-item">
                 <label>修改时间</label>
-                <a-range-picker v-model="filters.timeRange" size="small" class="filter-range" />
+                <a-popover
+                  trigger="click"
+                  position="bl"
+                  v-model:popupVisible="timePanelOpen"
+                  :popup-style="{ padding: '0' }"
+                >
+                  <div class="filter-time-box" :title="timeSummary || ''">
+                    <span v-if="timeSummary" class="filter-time-summary">{{ timeSummary }}</span>
+                    <span v-else class="filter-time-placeholder">全部时间</span>
+                    <span class="filter-time-caret">▾</span>
+                  </div>
+                  <template #content>
+                    <div class="time-popover">
+                      <a-range-picker v-model="pendingTimeRange" size="small" class="time-range" @change="onTimeRangeChange" />
+                      <div class="time-presets">
+                        <div class="time-preset-group">
+                          <div class="time-preset-title">最近</div>
+                          <div class="time-preset-grid">
+                            <a-button v-for="p in TIME_PRESETS_RECENT" :key="p.label" size="mini" @click="onRecentPreset(p)">{{ p.label }}</a-button>
+                          </div>
+                        </div>
+                        <div class="time-preset-divider"></div>
+                        <div class="time-preset-group">
+                          <div class="time-preset-title">之前</div>
+                          <div class="time-preset-grid">
+                            <a-button v-for="p in TIME_PRESETS_BEFORE" :key="p.label" size="mini" @click="onBeforePreset(p)">{{ p.label }}</a-button>
+                          </div>
+                        </div>
+                      </div>
+                      <div class="time-popover-footer">
+                        <a-button size="small" @click="clearTimeFilter">清空</a-button>
+                        <a-button size="small" type="primary" @click="applyTimeFilter">确定</a-button>
+                      </div>
+                    </div>
+                  </template>
+                </a-popover>
               </div>
               <div class="filter-item">
                 <label>文件大小</label>
-                <a-input-number v-model="filters.sizeMin" size="small" :min="0" :precision="0" placeholder="最小" class="filter-size" />
-                <a-select v-model="sizeUnit" size="small" class="filter-unit">
-                  <a-option value="B">B</a-option>
-                  <a-option value="KB">KB</a-option>
-                  <a-option value="MB">MB</a-option>
-                  <a-option value="GB">GB</a-option>
-                </a-select>
-                <span class="filter-sep">~</span>
-                <a-input-number v-model="filters.sizeMax" size="small" :min="0" :precision="0" placeholder="最大" class="filter-size" />
-                <a-select v-model="sizeUnitMax" size="small" class="filter-unit">
-                  <a-option value="B">B</a-option>
-                  <a-option value="KB">KB</a-option>
-                  <a-option value="MB">MB</a-option>
-                  <a-option value="GB">GB</a-option>
-                </a-select>
+                <a-popover
+                  trigger="click"
+                  position="bl"
+                  v-model:popupVisible="sizePanelOpen"
+                  :popup-style="{ padding: '0' }"
+                >
+                  <div class="filter-size-box" :title="sizeSummary || ''">
+                    <span v-if="sizeSummary" class="filter-size-summary">{{ sizeSummary }}</span>
+                    <span v-else class="filter-size-placeholder">全部大小</span>
+                    <span class="filter-size-caret">▾</span>
+                  </div>
+                  <template #content>
+                    <div class="size-popover">
+                      <div class="size-inputs">
+                        <a-input-number v-model="pendingSizeMin" size="small" :min="0" :precision="0" placeholder="最小" class="size-num" />
+                        <span class="size-tilde">~</span>
+                        <a-input-number v-model="pendingSizeMax" size="small" :min="0" :precision="0" placeholder="最大" class="size-num" />
+                        <a-select v-model="pendingSizeUnit" size="small" class="size-unit-sel">
+                          <a-option value="B">B</a-option>
+                          <a-option value="KB">KB</a-option>
+                          <a-option value="MB">MB</a-option>
+                          <a-option value="GB">GB</a-option>
+                        </a-select>
+                      </div>
+                      <div class="size-presets">
+                        <a-button v-for="p in SIZE_PRESETS" :key="p.label" size="mini" @click="applySizePreset(p)">{{ p.label }}</a-button>
+                      </div>
+                      <div class="size-popover-footer">
+                        <a-button size="small" @click="clearSizeFilter">清空</a-button>
+                        <a-button size="small" type="primary" @click="applySizeFilter">确定</a-button>
+                      </div>
+                    </div>
+                  </template>
+                </a-popover>
               </div>
-              <div class="filter-item filter-reset">
-                <a-button size="small" type="outline" @click="clearFilters">重置</a-button>
-              </div>
-            </div>
+             </div>
           </div>
         </div>
       </div>
@@ -282,13 +391,15 @@
           <span v-if="bkPreviewData.file_size != null">文件大小: {{ formatBytes(bkPreviewData.file_size) }}</span>
           <span v-if="bkPreviewData.last_modified_time">修改时间: {{ bkPreviewData.last_modified_time }}</span>
         </div>
-        <div class="bk-preview-content" :class="{ expanded: bkPreviewExpanded }">
-          <div class="bk-preview-content-toolbar">
-            <a-button v-if="!bkPreviewExpanded" size="mini" @click="bkPreviewExpanded = true">放大</a-button>
-            <a-button v-if="bkPreviewExpanded" size="mini" @click="bkPreviewExpanded = false">缩小</a-button>
+          <div class="bk-preview-content" :class="{ expanded: bkPreviewExpanded }">
+            <div class="bk-preview-content-toolbar">
+              <a-button v-if="!bkPreviewExpanded" type="text" size="mini" shape="circle" @click="bkPreviewExpanded = true"><IconZoomIn /></a-button>
+              <a-button v-else type="text" size="mini" shape="circle" @click="bkPreviewExpanded = false"><IconZoomOut /></a-button>
+            </div>
+            <div class="bk-preview-scroll">
+              <pre>{{ bkPreviewData.content }}</pre>
+            </div>
           </div>
-          <pre>{{ bkPreviewData.content }}</pre>
-        </div>
         <div v-if="bkPreviewData.truncated" class="bk-preview-truncated">…（内容过长，已截断）</div>
       </div>
       <div v-else class="bk-preview-loading">无法获取文件内容</div>
@@ -309,6 +420,9 @@
 
 <script setup>
 import { h, ref, reactive, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
+import dayjs from 'dayjs'
+import { IconZoomIn, IconZoomOut, IconFilter } from '@arco-design/web-vue/es/icon'
+import FileTypeIcon from './components/FileTypeIcon.vue'
 import TitleBar from './TitleBar.vue'
 import SettingsContent from './components/SettingsContent.vue'
 import { rpc, shell, onNotification, onConnectionChange } from './api'
@@ -321,16 +435,16 @@ const isOrMode = ref(true)
 const nameOnly = ref(false)
 const sortBy = ref('mtime_desc')
 const sortOptions = [
-  { value: 'mtime_desc', label: '修改时间 ↓' },
-  { value: 'mtime_asc', label: '修改时间 ↑' },
-  { value: 'name_desc', label: '文件名 ↓' },
-  { value: 'name_asc', label: '文件名 ↑' },
-  { value: 'size_desc', label: '文件大小 ↓' },
-  { value: 'size_asc', label: '文件大小 ↑' },
+  { value: 'mtime_desc', label: '时间由近到远' },
+  { value: 'mtime_asc', label: '时间由远到近' },
+  { value: 'name_desc', label: '文件名称降序' },
+  { value: 'name_asc', label: '文件名称升序' },
+  { value: 'size_desc', label: '文件由大到小' },
+  { value: 'size_asc', label: '文件由小到大' },
 ]
 const sortLabel = computed(() => {
   const opt = sortOptions.find(o => o.value === sortBy.value)
-  return opt ? opt.label : '修改时间 ↓'
+  return opt ? opt.label : '时间由近到远'
 })
 const contextLength = ref(100)
 const pageSize = ref(20)
@@ -338,16 +452,86 @@ const pageSize = ref(20)
 const filters = reactive({
   name: '',
   types: [],
-  dir: '',
+  dirs: [],
   timeRange: null,
   sizeMin: null,
   sizeMax: null,
 })
-const sizeUnit = ref('KB')
-const sizeUnitMax = ref('KB')
-const filterExpanded = ref(false)
+const sizeUnit = ref('MB')
+const filterExpanded = ref(true)
+const sortPanelOpen = ref(false)
+const typePanelOpen = ref(false)
+const pendingTypes = ref([])
 const fileTypeOptions = ref([])
 const watchDirOptions = ref([])
+const dirSearch = ref('')
+const dirPanelOpen = ref(false)
+const pendingDirs = ref([])
+const filteredWatchDirs = computed(() => {
+  const q = dirSearch.value.trim().toLowerCase()
+  if (!q) return watchDirOptions.value
+  return watchDirOptions.value.filter((p) => p.toLowerCase().includes(q))
+})
+
+const timePanelOpen = ref(false)
+const timePresetLabel = ref('')
+const pendingTimeRange = ref(null)
+const pendingTimeLabel = ref('')
+const sizePanelOpen = ref(false)
+const pendingSizeMin = ref(null)
+const pendingSizeMax = ref(null)
+const pendingSizeUnit = ref('MB')
+
+const timeSummary = computed(() => {
+  if (timePresetLabel.value) return timePresetLabel.value
+  const r = filters.timeRange
+  if (r && r[0] && r[1]) return `${r[0]} ~ ${r[1]}`
+  if (r && r[0] && !r[1]) return `≥ ${r[0]}`
+  if (r && !r[0] && r[1]) return `≤ ${r[1]}`
+  return ''
+})
+
+const sizeSummary = computed(() => {
+  const u = sizeUnit.value
+  const min = filters.sizeMin
+  const max = filters.sizeMax
+  if (min != null && min !== '' && max != null && max !== '') return `${min}${u} ~ ${max}${u}`
+  if (min != null && min !== '') return `≥ ${min}${u}`
+  if (max != null && max !== '') return `≤ ${max}${u}`
+  return ''
+})
+
+const TIME_PRESETS_RECENT = [
+  { label: '最近1天', kind: 'day', n: 1 },
+  { label: '最近3天', kind: 'day', n: 3 },
+  { label: '最近7天', kind: 'day', n: 7 },
+  { label: '最近1个月', kind: 'month', n: 1 },
+  { label: '最近3个月', kind: 'month', n: 3 },
+  { label: '最近半年', kind: 'month', n: 6 },
+  { label: '最近1年', kind: 'month', n: 12 },
+  { label: '最近3年', kind: 'month', n: 36 },
+]
+const TIME_PRESETS_BEFORE = [
+  { label: '1个月前', kind: 'month', n: 1 },
+  { label: '3个月前', kind: 'month', n: 3 },
+  { label: '半年前', kind: 'month', n: 6 },
+  { label: '1年前', kind: 'month', n: 12 },
+  { label: '3年前', kind: 'month', n: 36 },
+]
+const SIZE_PRESETS = [
+  { label: '<1MB', min: '', max: 1, unit: 'MB' },
+  { label: '1-10MB', min: 1, max: 10, unit: 'MB' },
+  { label: '10-100MB', min: 10, max: 100, unit: 'MB' },
+  { label: '100M-1G', min: 100, max: 1024, unit: 'MB' },
+  { label: '>1G', min: 1024, max: '', unit: 'MB' },
+]
+
+function dayOffset(days) {
+  return dayjs().subtract(days, 'day').format('YYYY-MM-DD')
+}
+function monthOffset(months) {
+  return dayjs().subtract(months, 'month').format('YYYY-MM-DD')
+}
 const nextKey = ref(null)
 const total = ref(0)
 const hasMore = ref(false)
@@ -361,7 +545,7 @@ const activeFilterCount = computed(() => {
   let n = 0
   if (filters.name.trim()) n++
   if (filters.types.length) n++
-  if (filters.dir.trim()) n++
+  if (filters.dirs.length) n++
   if (filters.timeRange && filters.timeRange.length) n++
   if (filters.sizeMin != null && filters.sizeMin !== '') n++
   if (filters.sizeMax != null && filters.sizeMax !== '') n++
@@ -370,17 +554,16 @@ const activeFilterCount = computed(() => {
 
 function buildFilters() {
   const unit = SIZE_UNITS[sizeUnit.value] || 1024
-  const unitMax = SIZE_UNITS[sizeUnitMax.value] || 1024
   const sizeMin = filters.sizeMin != null && filters.sizeMin !== ''
     ? Math.round(Number(filters.sizeMin) * unit)
     : null
   const sizeMax = filters.sizeMax != null && filters.sizeMax !== ''
-    ? Math.round(Number(filters.sizeMax) * unitMax)
+    ? Math.round(Number(filters.sizeMax) * unit)
     : null
   return {
     name: filters.name.trim() || null,
     types: filters.types.length ? filters.types.slice() : [],
-    dir: filters.dir.trim() || null,
+    dirs: filters.dirs.length ? filters.dirs.slice() : [],
     time_from: filters.timeRange && filters.timeRange[0] ? filters.timeRange[0] : null,
     time_to: filters.timeRange && filters.timeRange[1] ? filters.timeRange[1] : null,
     size_min: sizeMin,
@@ -404,7 +587,7 @@ function formatBytes(n) {
 function clearFilters() {
   filters.name = ''
   filters.types = []
-  filters.dir = ''
+  filters.dirs = []
   filters.timeRange = null
   filters.sizeMin = null
   filters.sizeMax = null
@@ -412,10 +595,114 @@ function clearFilters() {
   runSearch()
 }
 
+function togglePendingDir(path, checked) {
+  const i = pendingDirs.value.indexOf(path)
+  if (checked) {
+    if (i === -1) pendingDirs.value.push(path)
+  } else if (i !== -1) {
+    pendingDirs.value.splice(i, 1)
+  }
+}
+
+function selectAllPendingDirs() {
+  pendingDirs.value = watchDirOptions.value.slice()
+}
+
+function clearPendingDirs() {
+  pendingDirs.value = []
+}
+
+function applyDirs() {
+  filters.dirs = pendingDirs.value.slice()
+  dirPanelOpen.value = false
+}
+
+watch(dirPanelOpen, (open) => {
+  if (open) pendingDirs.value = filters.dirs.slice()
+})
+
+function applyTimePreset(from, to, label) {
+  pendingTimeRange.value = [from, to]
+  pendingTimeLabel.value = label
+}
+function onRecentPreset(p) {
+  const from = p.kind === 'day' ? dayOffset(p.n) : monthOffset(p.n)
+  applyTimePreset(from, dayOffset(1), p.label)
+}
+function onBeforePreset(p) {
+  applyTimePreset(null, monthOffset(p.n), p.label)
+}
+function onTimeRangeChange() {
+  pendingTimeLabel.value = ''
+}
+function applyTimeFilter() {
+  filters.timeRange = pendingTimeRange.value
+  timePresetLabel.value = pendingTimeLabel.value
+  timePanelOpen.value = false
+}
+function clearTimeFilter() {
+  filters.timeRange = null
+  timePresetLabel.value = ''
+  timePanelOpen.value = false
+}
+
+function applySizePreset(p) {
+  pendingSizeMin.value = p.min === '' ? null : p.min
+  pendingSizeMax.value = p.max === '' ? null : p.max
+  pendingSizeUnit.value = p.unit
+}
+function applySizeFilter() {
+  filters.sizeMin = pendingSizeMin.value
+  filters.sizeMax = pendingSizeMax.value
+  sizeUnit.value = pendingSizeUnit.value
+  sizePanelOpen.value = false
+}
+function clearSizeFilter() {
+  filters.sizeMin = null
+  filters.sizeMax = null
+  sizePanelOpen.value = false
+}
+
+watch(timePanelOpen, (open) => {
+  if (open) {
+    pendingTimeRange.value = filters.timeRange ? filters.timeRange.slice() : null
+    pendingTimeLabel.value = timePresetLabel.value
+  }
+})
+watch(sizePanelOpen, (open) => {
+  if (open) {
+    pendingSizeMin.value = filters.sizeMin
+    pendingSizeMax.value = filters.sizeMax
+    pendingSizeUnit.value = sizeUnit.value
+  }
+})
+
 function onSortChange(value) {
   sortBy.value = value
+  sortPanelOpen.value = false
   clearTimeout(debounceTimer)
   runSearch()
+}
+
+watch(typePanelOpen, (open) => {
+  if (open) pendingTypes.value = filters.types.slice()
+})
+function togglePendingType(t, checked) {
+  if (checked) {
+    if (!pendingTypes.value.includes(t)) pendingTypes.value.push(t)
+  } else {
+    pendingTypes.value = pendingTypes.value.filter(x => x !== t)
+  }
+}
+function selectAllPendingTypes() {
+  pendingTypes.value = fileTypeOptions.value.slice()
+}
+function clearPendingTypes() {
+  pendingTypes.value = []
+}
+function applyTypes() {
+  filters.types = pendingTypes.value.slice()
+  typePanelOpen.value = false
 }
 
 const searchPlaceholder = computed(() => nameOnly.value ? '搜索文件名...' : '搜索文件内容...')
@@ -803,7 +1090,7 @@ watch(
   () => ({
     name: filters.name,
     types: filters.types.slice(),
-    dir: filters.dir,
+    dirs: filters.dirs.slice(),
     timeRange: filters.timeRange ? filters.timeRange.slice() : null,
     sizeMin: filters.sizeMin,
     sizeMax: filters.sizeMax,
@@ -1389,7 +1676,6 @@ onUnmounted(() => {
   flex: 1;
   min-width: 0;
   padding: 8px 12px;
-  font-size: 14px;
   color: var(--color-text-1);
   background: transparent;
   border: none;
@@ -1402,13 +1688,12 @@ onUnmounted(() => {
   flex: 1;
   min-width: 0;
   padding: 8px 12px;
-  font-size: 14px;
   color: var(--color-text-1);
   background: transparent;
   border: none;
   outline: none;
   resize: none;
-  font-family: monospace;
+  font-family: inherit;
 }
 .sql-input::placeholder {
   color: var(--color-text-3);
@@ -1425,26 +1710,29 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 12px;
   color: var(--color-text-3);
   cursor: pointer;
   user-select: none;
   padding: 2px 4px;
 }
 .filter-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
   font-weight: 500;
-  font-size: 14px;
+  color: var(--color-text-1);
 }
 .filter-count {
+  font-size: 12px;
   color: rgb(var(--primary-6));
   background: rgba(var(--primary-6), 0.1);
   padding: 0 6px;
   border-radius: 8px;
 }
 .filter-clear {
-  color: var(--color-text-3);
+  color: rgb(var(--primary-6));
   text-decoration: underline;
-  margin-left: auto;
+  margin-left: 4px;
 }
 .filter-clear:hover {
   color: rgb(var(--danger-6));
@@ -1465,57 +1753,255 @@ onUnmounted(() => {
   flex-shrink: 0;
 }
 .filter-item label {
-  font-size: 12px;
-  color: var(--color-text-3);
+  color: var(--color-text-1);
   white-space: nowrap;
 }
 .filter-input {
   width: 120px;
 }
-.filter-types {
-  width: 200px;
+.filter-type-box {
+  width: 120px;
 }
-/* 标签区强制单行：inner 默认是 inline 流，input 有 width:100% 会独占一行把标签挤成两行；改为 flex 单行收缩布局 */
-.filter-types .arco-select-view-inner {
+.type-popover {
+  width: 260px;
+}
+.type-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 2px 8px;
+  max-height: 272px;
+  overflow-y: auto;
+}
+.type-grid .dir-empty {
+  grid-column: 1 / -1;
+}
+.type-cell {
   display: flex;
-  flex-wrap: nowrap;
   align-items: center;
-  overflow: hidden;
-}
-.filter-types .arco-select-view-inner .arco-select-view-tag {
-  flex-shrink: 1;
+  gap: 6px;
+  padding: 4px 6px;
+  cursor: pointer;
+  border-radius: 4px;
   min-width: 0;
 }
-.filter-types .arco-select-view-inner .arco-select-view-input {
-  flex: 0 1 auto;
-  min-width: 12px;
-  width: auto;
+.type-cell:hover {
+  background: var(--color-fill-2);
 }
-.filter-dir {
+.type-icon {
+  flex-shrink: 0;
+}
+.type-name {
+  font-size: 14px;
+  color: var(--color-text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.filter-dir-box {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 4px;
   width: 180px;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--color-border-2);
+  border-radius: 4px;
+  background: var(--color-fill-2);
+  cursor: pointer;
+  box-sizing: border-box;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
-.filter-range {
-  width: 210px;
+.filter-dir-placeholder {
+  color: var(--color-text-3);
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.filter-size {
+.filter-dir-caret {
+  margin-left: auto;
+  color: var(--color-text-3);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.dir-count {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 6px;
+  height: 18px;
+  font-size: 12px;
+  color: rgb(var(--primary-6));
+  background: rgba(var(--primary-6), 0.12);
+  border-radius: 9px;
+  flex-shrink: 0;
+}
+.dir-popover {
+  width: 320px;
+  padding: 8px;
+  box-sizing: border-box;
+}
+.dir-search {
+  margin-bottom: 6px;
+}
+.dir-list {
+  max-height: 272px;
+  overflow-y: auto;
+  border: 1px solid var(--color-border-2);
+  border-radius: 4px;
+}
+.dir-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  cursor: pointer;
+  word-break: break-all;
+}
+.dir-row:hover {
+  background: var(--color-fill-2);
+}
+.dir-path {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--color-text-1);
+}
+.dir-empty {
+  padding: 16px 8px;
+  text-align: center;
+  color: var(--color-text-3);
+  font-size: 12px;
+}
+.dir-popover-footer {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+/* 时间 / 大小 触发器盒子（与目录盒子同风格） */
+.filter-time-box,
+.filter-size-box {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 4px;
+  width: 160px;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--color-border-2);
+  border-radius: 4px;
+  background: var(--color-fill-2);
+  cursor: pointer;
+  box-sizing: border-box;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.filter-time-summary,
+.filter-size-summary {
+  font-size: 12px;
+  color: var(--color-text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.filter-time-placeholder,
+.filter-size-placeholder {
+  color: var(--color-text-3);
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.filter-time-caret,
+.filter-size-caret {
+  margin-left: auto;
+  color: var(--color-text-3);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+/* 时间弹层 */
+.time-popover {
+  width: 400px;
+  padding: 10px;
+  box-sizing: border-box;
+}
+.time-range {
+  width: 100%;
+  margin-bottom: 8px;
+}
+.time-presets {
+  border-top: 1px solid var(--color-border-2);
+  padding-top: 8px;
+}
+.time-preset-title {
+  font-size: 12px;
+  color: var(--color-text-3);
+  margin-bottom: 4px;
+}
+.time-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+.time-preset-grid .arco-btn {
+  width: 100%;
+  white-space: nowrap;
+}
+.time-preset-divider {
+  height: 1px;
+  background: var(--color-border-2);
+  margin: 8px 0;
+}
+.time-popover-footer {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 10px;
+}
+/* 大小弹层 */
+.size-popover {
+  width: 320px;
+  padding: 10px;
+  box-sizing: border-box;
+}
+.size-inputs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.size-num {
+  width: 90px;
+  flex: 1;
+}
+.size-tilde {
+  color: var(--color-text-4);
+}
+.size-unit-sel {
   width: 72px;
 }
-.filter-unit {
-  width: 76px;
+.size-presets {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin-top: 10px;
+  border-top: 1px solid var(--color-border-2);
+  padding-top: 10px;
 }
-.filter-sep {
-  color: var(--color-text-4);
-  margin: 0 4px;
+.size-presets .arco-btn {
+  width: 100%;
 }
-.filter-reset {
-  margin-left: auto;
+.size-popover-footer {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 10px;
 }
 /* 隐藏多选下拉选项前的 Arco 原生复选框（文件类型筛选） */
 .arco-select-checkbox {
   display: none;
-}
-.opt-label {
-  white-space: nowrap;
 }
 .opt-ellipsis {
   display: block;
@@ -1710,11 +2196,11 @@ onUnmounted(() => {
   color: var(--color-text-1);
 }
 .sort-dropdown-wrap {
-  margin-left: 8px;
+  margin-left: 0;
+  margin-right: 4px;
 }
 .sort-trigger {
-  font-size: 14px;
-  color: var(--color-text-3);
+  color: var(--color-text-1);
   cursor: pointer;
   user-select: none;
   padding: 2px 6px;
@@ -1723,14 +2209,25 @@ onUnmounted(() => {
 }
 .sort-trigger:hover {
   background: var(--color-fill-2);
+}
+.sort-popover {
+  width: 120px;
+  padding: 4px 0;
+  box-sizing: border-box;
+}
+.sort-option {
+  padding: 6px 12px;
+  font-size: 13px;
   color: var(--color-text-2);
+  cursor: pointer;
+  white-space: nowrap;
 }
-.sort-active {
-  color: rgb(var(--primary-6)) !important;
+.sort-option:hover {
+  background: var(--color-fill-2);
+}
+.sort-option.active {
+  color: var(--color-text-1);
   font-weight: 600;
-}
-.arco-dropdown-list-wrapper {
-  max-height: none;
 }
 .app-body {
   display: flex;
@@ -1757,9 +2254,6 @@ onUnmounted(() => {
   font-size: 13px;
   font-weight: 600;
   color: var(--color-text-1);
-}
-.sidebar-title {
-  font-size: 14px;
 }
 .sidebar-filter {
   padding: 6px 8px;
@@ -1795,7 +2289,6 @@ onUnmounted(() => {
   align-items: center;
   gap: 4px;
   padding: 6px 12px;
-  font-size: 14px;
   font-weight: 600;
   color: var(--color-text-1);
   cursor: pointer;
@@ -2013,32 +2506,39 @@ onUnmounted(() => {
 }
 .bk-preview-content {
   margin-top: 4px;
-  padding: 10px;
-  padding-top: 28px;
   background: var(--color-fill-1);
   border: 1px solid var(--color-border-2);
   border-radius: 4px;
   min-height: 200px;
-  max-height: 300px;
-  overflow-y: auto;
   position: relative;
 }
-.bk-preview-content.expanded {
-  min-height: 40vh;
+.bk-preview-scroll {
+  max-height: 300px;
+  overflow-y: auto;
+  padding: 10px;
+  padding-right: 40px;
+}
+.bk-preview-content.expanded .bk-preview-scroll {
   max-height: 70vh;
 }
 .bk-preview-content-toolbar {
   position: absolute;
-  top: 4px;
-  right: 4px;
+  top: 8px;
+  right: 16px;
   display: flex;
   gap: 4px;
   z-index: 1;
 }
+.bk-preview-content-toolbar .arco-btn {
+  width: 28px;
+  height: 28px;
+}
+.bk-preview-content-toolbar .arco-icon {
+  font-size: 16px;
+}
 .bk-preview-content pre {
   margin: 0;
-  font-family: var(--font-family-code, Consolas, monospace);
-  font-size: 12px;
+  font-family: inherit;
   line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-word;

@@ -6,7 +6,9 @@
 #     all      都包含
 #   No argument / --help / -h: show this help.
 #
-# Output: dist/TextSearch-v<ver>-linux-x64[-backend|-tauri].tar.gz
+# Output: dist/TextSearch-v<ver>-linux-x64[-platform][-backend|-tauri].tar.gz
+# Optional TEXT_SEARCH_PLATFORM_SUFFIX distinguishes CI platform variants,
+# for example -ubuntu22.04 or -ubuntu24.04.
 
 set -euo pipefail
 
@@ -30,7 +32,7 @@ Examples:
   $0 tauri        # 仅 Tauri 版
   $0 all          # 都包含
 
-Output: dist/TextSearch-v<ver>-linux-x64[-backend|-tauri].tar.gz
+Output: dist/TextSearch-v<ver>-linux-x64[-platform][-backend|-tauri].tar.gz
 EOF
 }
 
@@ -50,6 +52,13 @@ case "$MODE" in
     ;;
 esac
 
+echo "==> Updating third-party license report"
+if ! cargo about --version >/dev/null 2>&1; then
+  echo "cargo-about not found; installing it..."
+  cargo install --locked --features cli cargo-about
+fi
+node "$ROOT/scripts/generate_third_party_licenses.mjs"
+
 echo "========================================"
 echo "  Text Search packaging (Linux, mode: $MODE)"
 echo "========================================"
@@ -65,42 +74,38 @@ npm --prefix "$ROOT/frontend" run build
 step "Forcing backend recompile to embed latest frontend"
 touch "$ROOT/src/lib.rs"
 
-step "Building backend (text_search)"
-cargo build --release --features with-ws-server
+if [ "$MODE" = "tauri" ] || [ "$MODE" = "all" ]; then
+  step "Building backend and preparing Tauri sidecar"
+  node "$ROOT/frontend/scripts/build-sidecar.mjs" --release
+else
+  step "Building backend (text_search)"
+  cargo build --release --features with-ws-server
+fi
 
-HOST_TRIPLE="$(rustc -vV | sed -n 's/^host: //p')"
 BACKEND_EXE="$ROOT/target/release/text_search"
 TAURI_EXE="$ROOT/target/release/text-search-tauri"
 
 if [ "$MODE" = "tauri" ] || [ "$MODE" = "all" ]; then
-  step "Copying sidecar -> text_search-$HOST_TRIPLE"
-  cp "$BACKEND_EXE" "$ROOT/src-tauri/binaries/text_search-$HOST_TRIPLE"
-
   step "Building Tauri desktop app"
   npx --prefix "$ROOT/frontend" tauri build --no-bundle
 fi
 
 VERSION="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$ROOT/src-tauri/tauri.conf.json" | head -1)"
+PLATFORM_SUFFIX="${TEXT_SEARCH_PLATFORM_SUFFIX:-}"
 SUFFIX=""
 [ "$MODE" = "backend" ] && SUFFIX="-backend"
 [ "$MODE" = "tauri" ] && SUFFIX="-tauri"
 STAGING="$(mktemp -d)"
-PKG_NAME="TextSearch-v${VERSION}-linux-x64${SUFFIX}"
+PKG_NAME="TextSearch-v${VERSION}-linux-x64${PLATFORM_SUFFIX}${SUFFIX}"
 
 step "Staging files"
 [ "$MODE" != "tauri" ] && cp "$BACKEND_EXE" "$STAGING/"
 [ "$MODE" != "backend" ] && cp "$TAURI_EXE" "$STAGING/"
+cp "$ROOT/README.md" "$STAGING/README.md"
 
-cat > "$STAGING/README.txt" <<EOF
-Text Search v$VERSION (Linux x64, $MODE)
-=========================================
-
-Files:
-  text_search.exe         Standalone backend with a built-in web UI.
-                          Run it, then a browser opens at a random free port
-                          (10000-60000, auto-picked).
-  text-search-tauri       Desktop app - double click to run.
-EOF
+step "Collecting dependency licenses"
+mkdir -p "$STAGING/licenses"
+node "$ROOT/scripts/collect_licenses.mjs" --output "$STAGING/licenses"
 
 mkdir -p "$ROOT/dist"
 OUT="$ROOT/dist/$PKG_NAME.tar.gz"

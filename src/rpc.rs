@@ -429,7 +429,7 @@ fn dispatch(
         "config_save" => handle_config_save(config, db, &params),
         "file_types" => handle_file_types(db),
         "index_status" => handle_index_status(db),
-        "shutdown" => handle_shutdown(),
+        "shutdown" => handle_shutdown(&params),
         "browse_directory" => handle_browse_directory(&params),
         "open_folder_and_select" => handle_open_folder_and_select(&params),
         "bookmark_add" => handle_bookmark_add(db, &params),
@@ -743,12 +743,29 @@ fn handle_index_status(db: &Arc<Database>) -> RpcResult {
     }))
 }
 
-fn handle_shutdown() -> RpcResult {
-    tracing::info!("RPC shutdown requested");
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct ShutdownParams {
+    force: bool,
+}
+
+fn handle_shutdown(params: &Value) -> RpcResult {
+    let p: ShutdownParams = parse_params(params)?;
+
+    // 非强制且正在索引：返回失败+is_indexing，后端不实际 shutdown。
+    if !p.force && crate::indexer::is_indexing() {
+        return Ok(json!({
+            "success": false,
+            "data": { "is_indexing": true },
+            "message": "Indexing in progress"
+        }));
+    }
+
+    tracing::info!("RPC shutdown requested (force={})", p.force);
     crate::shutdown::request();
     Ok(json!({
         "success": true,
-        "data": "Shutdown initiated",
+        "data": { "is_indexing": false },
         "message": "Shutdown initiated",
     }))
 }

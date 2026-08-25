@@ -14,7 +14,7 @@ param(
     [string]$Mode
 )
 
-$ErrorActionPreference = 'Stop'
+$ErrorActionPreference = 'Continue'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $root
 
@@ -51,6 +51,16 @@ function Step($msg) {
     Write-Host "`n==> $msg" -ForegroundColor Cyan
 }
 
+Step 'Updating third-party license report'
+& cargo about --version *> $null
+if ($LASTEXITCODE -ne 0) {
+    Write-Host 'cargo-about not found; installing it...' -ForegroundColor Yellow
+    & cargo install --locked --features cli cargo-about
+    if ($LASTEXITCODE -ne 0) { throw 'cargo-about installation failed' }
+}
+& node "$root\scripts\generate_third_party_licenses.mjs"
+if ($LASTEXITCODE -ne 0) { throw 'third-party license report generation failed' }
+
 Step 'Building frontend (vite)'
 Push-Location "$root\frontend"
 & npm run build
@@ -63,19 +73,20 @@ Pop-Location
 Step 'Forcing backend recompile to embed latest frontend'
 (Get-Item "$root\src\lib.rs").LastWriteTime = Get-Date
 
-Step 'Building backend (text_search.exe)'
-& cargo build --release --features with-ws-server
-if ($LASTEXITCODE -ne 0) { throw 'backend build failed' }
+if ($Mode -eq 'tauri' -or $Mode -eq 'all') {
+    Step 'Building backend and preparing Tauri sidecar'
+    & node "$root\frontend\scripts\build-sidecar.mjs" --release
+    if ($LASTEXITCODE -ne 0) { throw 'backend/sidecar build failed' }
+} else {
+    Step 'Building backend (text_search.exe)'
+    & cargo build --release --features with-ws-server
+    if ($LASTEXITCODE -ne 0) { throw 'backend build failed' }
+}
 
-$tripleLine = (& rustc -vV) | Select-String '^host:\s+(\S+)'
-$hostTriple = $tripleLine.Matches[0].Groups[1].Value
 $backendExe = "$root\target\release\text_search.exe"
 $tauriExe = "$root\target\release\text-search-tauri.exe"
 
 if ($Mode -eq 'tauri' -or $Mode -eq 'all') {
-    Step "Copying sidecar -> text_search-$hostTriple.exe"
-    Copy-Item $backendExe "$root\src-tauri\binaries\text_search-$hostTriple.exe" -Force
-
     Step 'Building Tauri desktop app'
     & npx --prefix frontend tauri build --no-bundle
     if ($LASTEXITCODE -ne 0) { throw 'tauri build failed' }
@@ -89,24 +100,14 @@ if (Test-Path $staging) { Remove-Item $staging -Recurse -Force }
 New-Item -ItemType Directory -Path $staging | Out-Null
 
 Step 'Staging files'
-if ($Mode -ne 'tauri') { Copy-Item $backendExe $staging }
+Copy-Item $backendExe $staging
 if ($Mode -ne 'backend') { Copy-Item $tauriExe $staging }
+Copy-Item "$root\README.md" "$staging\README.md"
 
-@"
-Text Search v$version (Windows x64, $Mode)
-==========================================
-
-Files:
-  text-search-tauri.exe   Desktop app - double click to run.
-  text_search.exe         Standalone backend with a built-in web UI.
-                          Run it, then a browser opens at a random free port
-                          (10000-60000, auto-picked).
-
-Data (created automatically on first run, relative to the exe):
-  db\    SQLite database (config + file index)
-  index\ tantivy search index
-  logs\  log files
-"@ | Set-Content "$staging\README.txt" -Encoding UTF8
+Step 'Collecting dependency licenses'
+New-Item -ItemType Directory -Path "$staging\licenses" | Out-Null
+& node "$root\scripts\collect_licenses.mjs" --output "$staging\licenses"
+if ($LASTEXITCODE -ne 0) { throw 'license collection failed' }
 
 Step 'Creating zip'
 $outDir = "$root\dist"

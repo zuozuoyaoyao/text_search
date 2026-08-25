@@ -70,14 +70,12 @@ frontend/vue-cli-service.log
 src-tauri/target/
 src-tauri/gen/
 src-tauri/binaries/
+frontend/resources/licenses/
 
 # App data (dev mode)
 index.duckdb
 index.sqlite
 index.tantivy/
-
-# Test files
-test_files/
 
 # Executables
 *.exe

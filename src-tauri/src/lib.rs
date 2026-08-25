@@ -63,6 +63,11 @@ fn force_kill_backend(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+fn exit_app(app: AppHandle) {
+    app.exit(0);
+}
+
 fn open_log_file(ts_home: &PathBuf) -> File {
     let log_dir = ts_home.join("logs");
     let _ = std::fs::create_dir_all(&log_dir);
@@ -317,7 +322,8 @@ pub fn run() {
             open_folder_and_select,
             get_server_port,
             backend_exited,
-            force_kill_backend
+            force_kill_backend,
+            exit_app
         ])
         .on_menu_event(|app, event| match event.id().as_ref() {
             "settings" => {
@@ -333,6 +339,8 @@ pub fn run() {
                 if let Some(w) = app.get_webview_window("main") {
                     #[cfg(debug_assertions)]
                     let _ = w.open_devtools();
+                    #[cfg(not(debug_assertions))]
+                    let _ = w;
                 }
             }
             "zoom_in" => zoom(app, 0.1),

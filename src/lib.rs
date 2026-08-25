@@ -7,9 +7,6 @@ pub mod parser;
 pub mod shutdown;
 pub mod watcher;
 
-#[cfg(feature = "with-slint")]
-pub mod gui;
-
 #[cfg(feature = "with-ws-server")]
 pub mod rpc;
 
@@ -57,66 +54,6 @@ pub fn start_file_watcher(
     rpc::set_file_watcher(Arc::clone(&file_watcher));
 
     Ok(file_watcher)
-}
-
-#[cfg(feature = "with-slint")]
-pub fn run_slint_ui(db: Arc<Database>, config: Arc<Mutex<Config>>) -> Result<()> {
-    use crate::gui::logic::GuiApp;
-    use crate::indexer::Indexer;
-
-    let gui = Arc::new(Mutex::new(GuiApp::new(Arc::clone(&db), Arc::clone(&config))?));
-
-    let db_reindex = Arc::clone(&db);
-    let config_reindex = Arc::clone(&config);
-    let db_clear = Arc::clone(&db);
-
-    {
-        let mut gui_ref = gui.lock().unwrap();
-        gui_ref.app.on_reindex(move || {
-            tracing::info!("Starting reindex...");
-            let config = config_reindex.lock().unwrap();
-            let indexer = Indexer::new(Arc::clone(&db_reindex));
-            match indexer.index_all(&config) {
-                Ok(count) => {
-                    tracing::info!("Reindexed {} files", count);
-                }
-                Err(e) => {
-                    tracing::error!("Reindex error: {}", e);
-                }
-            }
-        });
-
-        gui_ref.app.on_clear_all(move || {
-            if let Err(e) = db_clear.clear_all() {
-                tracing::error!("Clear all error: {}", e);
-            } else {
-                tracing::info!("Cleared all indexes");
-            }
-        });
-    }
-
-    {
-        let config = config.lock().unwrap();
-        let indexer = Indexer::new(Arc::clone(&db));
-        tracing::info!("Starting initial indexing...");
-        match indexer.index_all(&config) {
-            Ok(count) => {
-                tracing::info!("Initial indexing completed: {} files indexed", count);
-            }
-            Err(e) => {
-                tracing::error!("Initial indexing error: {}", e);
-            }
-        }
-    }
-
-    let _file_watcher = start_file_watcher(Arc::clone(&db), Arc::clone(&config))?;
-
-    {
-        let gui_ref = gui.lock().unwrap();
-        gui_ref.show();
-    }
-
-    Ok(())
 }
 
 #[cfg(feature = "with-ws-server")]

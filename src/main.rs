@@ -16,23 +16,10 @@ fn main() -> Result<()> {
     let (db, config) = text_search::init_app()?;
     tracing::info!("Starting Text Search backend");
 
-    #[cfg(feature = "with-slint")]
-    {
-        text_search::run_slint_ui(db, config)?;
-    }
-
     #[cfg(feature = "with-ws-server")]
     {
         let port = parse_port_arg();
         text_search::run_ws_server(db, config, port)?;
-    }
-
-    #[cfg(not(any(feature = "with-slint", feature = "with-ws-server")))]
-    {
-        eprintln!(
-            "Error: No UI feature enabled. Please enable either 'with-slint' or 'with-ws-server'"
-        );
-        std::process::exit(1);
     }
 
     tracing::info!("Application exited");

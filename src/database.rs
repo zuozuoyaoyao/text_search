@@ -3,6 +3,9 @@ use rusqlite::{params, params_from_iter, Connection, Statement};
 use std::path::Path;
 use std::sync::Mutex;
 
+const INCREMENTAL_VACUUM_MIN_FREE_PAGES: i64 = 64;
+const INCREMENTAL_VACUUM_MAX_PAGES: i64 = 4096;
+
 pub struct Database {
     conn: Mutex<Connection>,
 }
@@ -11,9 +14,23 @@ impl Database {
     pub fn new(db_path: &Path) -> Result<Self> {
         let conn = Connection::open(db_path)
             .with_context(|| format!("Failed to open database at: {:?}", db_path))?;
+        // Keep WAL for the lifetime of the connection. Existing databases are
+        // migrated below because auto_vacuum changes require one VACUUM.
+        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA auto_vacuum=INCREMENTAL;")
+            .context("Failed to set SQLite pragmas")?;
 
-        conn.execute_batch("PRAGMA journal_mode=WAL;")
-            .context("Failed to set pragmas")?;
+        let auto_vacuum: i64 = conn
+            .query_row("PRAGMA auto_vacuum", [], |row| row.get(0))
+            .context("Failed to read SQLite auto_vacuum mode")?;
+        if auto_vacuum != 2 {
+            tracing::info!(
+                "Migrating SQLite auto_vacuum mode from {} to incremental",
+                auto_vacuum
+            );
+            // This is a one-time migration. VACUUM is safe while staying in WAL.
+            conn.execute_batch("PRAGMA auto_vacuum=INCREMENTAL; VACUUM;")
+                .context("Failed to enable incremental auto_vacuum")?;
+        }
 
         let db = Database {
             conn: Mutex::new(conn),
@@ -507,8 +524,80 @@ impl Database {
         self.with_conn(|conn| {
             conn.execute("DELETE FROM file", [])
                 .context("Failed to clear all files")?;
+            Self::run_incremental_vacuum(conn, None)
+                .context("Failed to vacuum after clear")?;
             Ok(())
         })
+    }
+
+    pub fn incremental_vacuum(&self) -> Result<()> {
+        self.with_conn(|conn| {
+            let mut previous: i64 =
+                conn.query_row("PRAGMA freelist_count", [], |row| row.get(0))?;
+            while previous >= INCREMENTAL_VACUUM_MIN_FREE_PAGES {
+                Self::run_incremental_vacuum(conn, Some(INCREMENTAL_VACUUM_MAX_PAGES))?;
+                let remaining: i64 =
+                    conn.query_row("PRAGMA freelist_count", [], |row| row.get(0))?;
+                if remaining >= previous {
+                    break;
+                }
+                previous = remaining;
+            }
+            Ok(())
+        })
+    }
+
+    // Reclaim free pages without changing journal mode or closing the connection.
+    fn run_incremental_vacuum(conn: &Connection, max_pages: Option<i64>) -> Result<()> {
+        let free: i64 = conn.query_row("PRAGMA freelist_count", [], |row| row.get(0))?;
+        if free < INCREMENTAL_VACUUM_MIN_FREE_PAGES {
+            return Ok(());
+        }
+
+        tracing::info!("Reclaiming {} free SQLite pages incrementally", free);
+
+        // incremental_vacuum is a multi-step PRAGMA: each sqlite3_step() reclaims
+        // one page and returns SQLITE_ROW with zero columns. execute_batch() only
+        // steps such a statement once, so consume all rows explicitly.
+        {
+            let sql = match max_pages {
+                Some(pages) => format!("PRAGMA incremental_vacuum({});", pages),
+                None => "PRAGMA incremental_vacuum;".to_string(),
+            };
+            let mut stmt = conn
+                .prepare(&sql)
+                .context("Failed to prepare incremental vacuum")?;
+            let mut rows = stmt
+                .query([])
+                .context("Failed to start incremental vacuum")?;
+            while rows
+                .next()
+                .context("Failed while running incremental vacuum")?
+                .is_some()
+            {}
+        }
+
+        let (busy, wal_pages, checkpointed): (i64, i64, i64) = conn
+            .query_row("PRAGMA wal_checkpoint(TRUNCATE);", [], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            })
+            .context("Failed to checkpoint WAL after incremental vacuum")?;
+        if busy != 0 {
+            tracing::warn!(
+                "WAL checkpoint after incremental vacuum was busy: wal_pages={}, checkpointed={}",
+                wal_pages,
+                checkpointed
+            );
+        }
+
+        let remaining: i64 =
+            conn.query_row("PRAGMA freelist_count", [], |row| row.get(0))?;
+        tracing::info!(
+            "Incremental vacuum completed: reclaimed={} pages, remaining={} pages",
+            free - remaining,
+            remaining
+        );
+        Ok(())
     }
 
     pub fn add_bookmark_category(&self, name: &str) -> Result<i64> {
@@ -903,7 +992,7 @@ pub struct DbConfig {
 pub struct SearchFilters {
     pub name: Option<String>,
     pub types: Vec<String>,
-    pub dir: Option<String>,
+    pub dirs: Vec<String>,
     pub time_from: Option<String>,
     pub time_to: Option<String>,
     pub size_min: Option<i64>,
@@ -958,11 +1047,22 @@ fn build_filter_sql(
         }
     }
 
-    if let Some(dir) = filters.dir.as_ref() {
-        if !dir.trim().is_empty() {
-            params.push(rusqlite::types::Value::Text(format!("%{}%", escape_like(dir.trim()))));
-            clauses.push("abs_path LIKE ? ESCAPE '\\'".to_string());
+    let dirs: Vec<&String> = filters
+        .dirs
+        .iter()
+        .filter(|d| !d.trim().is_empty())
+        .collect();
+    if !dirs.is_empty() {
+        let mut ors = Vec::new();
+        for d in dirs {
+            // 严格前缀匹配：abs_path 以选中目录开头（保留原 LIKE 转义以兼容 Windows 反斜杠路径）。
+            params.push(rusqlite::types::Value::Text(format!(
+                "{}%",
+                escape_like(d.trim())
+            )));
+            ors.push("abs_path LIKE ? ESCAPE '\\'".to_string());
         }
+        clauses.push(format!("({})", ors.join(" OR ")));
     }
 
     if let Some(from) = filters.time_from.as_ref() {
@@ -988,4 +1088,62 @@ fn build_filter_sql(
     }
 
     clauses
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn incremental_vacuum_consumes_multiple_steps() -> Result<()> {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)?
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "text-search-vacuum-{}-{}.sqlite",
+            std::process::id(),
+            unique
+        ));
+        let db = Database::new(&path)?;
+        db.with_conn(|conn| {
+            conn.execute_batch(
+                "CREATE TABLE vacuum_test(data BLOB);
+                 WITH RECURSIVE n(x) AS (
+                     VALUES(1) UNION ALL SELECT x + 1 FROM n WHERE x < 200
+                 )
+                 INSERT INTO vacuum_test SELECT zeroblob(8192) FROM n;",
+            )?;
+            let checkpoint_busy: i64 = conn.query_row(
+                "PRAGMA wal_checkpoint(TRUNCATE);",
+                [],
+                |row| row.get(0),
+            )?;
+            assert_eq!(checkpoint_busy, 0);
+            conn.execute("DELETE FROM vacuum_test", [])?;
+            Ok(())
+        })?;
+
+        let before: i64 = db.with_conn(|conn| {
+            Ok(conn.query_row("PRAGMA freelist_count", [], |row| row.get(0))?)
+        })?;
+        assert!(before >= INCREMENTAL_VACUUM_MIN_FREE_PAGES);
+
+        db.incremental_vacuum()?;
+
+        let after: i64 = db.with_conn(|conn| {
+            Ok(conn.query_row("PRAGMA freelist_count", [], |row| row.get(0))?)
+        })?;
+        assert!(
+            before - after > 1,
+            "incremental vacuum reclaimed only {} page(s)",
+            before - after
+        );
+
+        drop(db);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(format!("{}-wal", path.display()));
+        let _ = std::fs::remove_file(format!("{}-shm", path.display()));
+        Ok(())
+    }
 }

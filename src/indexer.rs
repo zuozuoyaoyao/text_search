@@ -130,9 +130,17 @@ pub fn init_index_worker(db: Arc<Database>) {
                         }
                     }
 
-                    if let Err(e) = indexer.db.commit_transaction() {
+                    let commit_ok = if let Err(e) = indexer.db.commit_transaction() {
                         tracing::error!("Failed to commit index transaction: {}", e);
                         let _ = indexer.db.rollback_transaction();
+                        false
+                    } else {
+                        true
+                    };
+                    if commit_ok {
+                        if let Err(e) = db.incremental_vacuum() {
+                            tracing::error!("Incremental vacuum failed: {}", e);
+                        }
                     }
 
                     let elapsed_ms = started.elapsed().as_millis();
@@ -183,9 +191,17 @@ pub fn init_index_worker(db: Arc<Database>) {
                             Err(e) => tracing::error!("Failed to remove files for {}: {}", p, e),
                         }
                     }
-                    if let Err(e) = indexer.db.commit_transaction() {
+                    let commit_ok = if let Err(e) = indexer.db.commit_transaction() {
                         tracing::error!("Failed to commit remove transaction: {}", e);
                         let _ = indexer.db.rollback_transaction();
+                        false
+                    } else {
+                        true
+                    };
+                    if commit_ok {
+                        if let Err(e) = db.incremental_vacuum() {
+                            tracing::error!("Incremental vacuum failed: {}", e);
+                        }
                     }
                     let elapsed_ms = started.elapsed().as_millis();
                     INDEXING.store(false, Ordering::SeqCst);
@@ -351,7 +367,7 @@ impl Indexer {
     }
 
     /// 由批量索引任务（Reindex/RemovePaths）在 begin_transaction 后开启，
-    /// watcher/slint 等单文件路径保持 false，避免在无事务时触发提交。
+    /// 其他单文件路径保持 false，避免在无事务时触发提交。
     pub fn set_batch_mode(&self, enabled: bool) {
         self.in_batch.set(enabled);
         if !enabled {

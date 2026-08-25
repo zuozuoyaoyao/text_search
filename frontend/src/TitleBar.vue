@@ -156,36 +156,43 @@ async function closeWindow() {
   if (closing.value) return
   closing.value = true
   try {
-    let isIndexing = false
-    try {
-      const st = await rpc.indexStatus()
-      isIndexing = !!(st && st.success && st.data && st.data.is_indexing)
-    } catch { /* ignore */ }
+    // 单次调用 shutdown(force=false)：不在索引时后端直接优雅退出返回成功；
+    // 正在索引或 RPC 超时（无法确认）时后端返回失败，前端弹窗让用户确认强制关闭。
+    const res = await Promise.race([
+      rpc.shutdown(false),
+      new Promise((resolve) => setTimeout(() => resolve(null), 3000)),
+    ])
 
-    if (isIndexing) {
+    if (res && res.success) {
+      await doClose()
+    } else {
       closing.value = false
       Modal.confirm({
         title: '正在重建索引',
-        content: '索引仍在重建中，确定要关闭吗？关闭前会安全停止索引进程。',
-        okText: '关闭',
+        content: '索引仍在重建中，确定要强制关闭吗？关闭前会安全停止索引进程。',
+        okText: '强制关闭',
         cancelText: '取消',
-        onOk: () => doClose(),
+        onOk: () => forceClose(),
         onCancel: () => {},
       })
-    } else {
-      await doClose()
     }
-  } catch { /* ignore */ }
+  } catch {
+    await doClose()
+  }
 }
 
-async function doClose() {
+async function forceClose() {
   try {
-    // shutdown RPC 带超时保护：后端无响应（异常退出/连接异常）时不再无限挂起。
+    // force=true：跳过索引检查，立即发起优雅退出（带超时保护）。
     await Promise.race([
-      rpc.shutdown(),
+      rpc.shutdown(true),
       new Promise((resolve) => setTimeout(resolve, 3000)),
     ])
   } catch { /* ignore */ }
+  doClose()
+}
+
+async function doClose() {
   if (isTauri && win) {
     startWaitLoop()
   } else {
@@ -244,7 +251,8 @@ function finishClose() {
   closing.value = false
   stopWaitLoop()
   setTimeout(() => {
-    try { win.destroy() } catch { /* ignore */ }
+    try { win.destroy() } catch (e) { console.error('[finishClose] win.destroy failed:', e) }
+    invokeExitApp()
   }, 100)
 }
 
@@ -259,7 +267,15 @@ async function forceKillAndClose() {
   } catch { /* ignore */ }
   // 给 Rust 端一点时间处理 Terminated 事件，避免 ExitRequested 时 exited 仍为 false
   await new Promise((r) => setTimeout(r, 500))
-  try { win.destroy() } catch { /* ignore */ }
+  try { win.destroy() } catch (e) { console.error('[forceKillAndClose] win.destroy failed:', e) }
+  invokeExitApp()
+}
+
+async function invokeExitApp() {
+  try {
+    const { invoke } = await import('@tauri-apps/api/core')
+    await invoke('exit_app')
+  } catch (e) { console.error('[invokeExitApp] exit_app failed:', e) }
 }
 
 async function onForceClose() {
